@@ -2748,7 +2748,14 @@ object Parsers {
     /** Patterns          ::=  Pattern [`,' Pattern]
      */
     def patterns(location: Location = Location.InPattern): List[Tree] =
-      commaSeparated(() => pattern(location))
+      commaSeparated(() =>
+        if (in.token == IDENTIFIER && in.lookahead.token == EQUALS)
+          val ident = termIdent()
+          accept(EQUALS)
+          NamedArg(ident.name, pattern(location))
+        else
+          pattern(location)
+      )
 
     def patternsOpt(location: Location = Location.InPattern): List[Tree] =
       if (in.token == RPAREN) Nil else patterns(location)

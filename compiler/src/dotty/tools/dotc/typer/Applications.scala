@@ -1352,12 +1352,43 @@ trait Applications extends Compatibility {
 
         var argTypes = unapplyArgs(unapplyApp.tpe, unapplyFn, args, tree.srcPos)
         for (argType <- argTypes) assert(!isBounds(argType), unapplyApp.tpe.show)
-        val bunchedArgs = argTypes match {
+        var bunchedArgs = argTypes match {
           case argType :: Nil =>
             if (args.lengthCompare(1) > 0 && Feature.autoTuplingEnabled && defn.isTupleNType(argType)) untpd.Tuple(args) :: Nil
             else args
           case _ => args
         }
+
+        if (bunchedArgs.find(_.isInstanceOf[dotty.tools.dotc.ast.Trees.NamedArg[_]]).nonEmpty)
+
+          //TODO: this works for for 'normal' case classes and breakes in every other case
+          val nameIndex: List[Name] =
+            unapplyFn.tpe.widen.paramInfoss.head.head.fields.map(_.name).toList
+
+          bunchedArgs = argTypes.indices.map { index =>
+            val searchedName = nameIndex(index)
+            val trees = bunchedArgs.collect {
+              case NamedArg(`searchedName`, tree) =>
+                if (tree.toString == "Ident(_)")
+                  report.warning("Underscore isn't usefull here", tree.srcPos)
+                tree
+            }
+
+            if (trees.nonEmpty)
+              trees.tail.foreach { duplicatedName =>
+                // TODO: use correct position
+                report.error("Names can only be used once", duplicatedName.sourcePos)
+              }
+
+            trees.headOption.getOrElse({
+              var i2 = underscore
+              i2.span = unapplyFn.span
+              i2
+            })
+          }.toList
+
+        // TODO: error on unknown names
+
         if (argTypes.length != bunchedArgs.length) {
           report.error(UnapplyInvalidNumberOfArguments(qual, argTypes), tree.srcPos)
           argTypes = argTypes.take(args.length) ++

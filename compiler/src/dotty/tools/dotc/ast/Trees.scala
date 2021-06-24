@@ -430,6 +430,8 @@ object Trees {
 
   // ----------- Tree case classes ------------------------------------
 
+  // TODO: This seems to be bad workaround of my missing understanding (and why is 206 is an underscore?)
+  def underscore(implicit  src: SourceFile): Ident[Untyped] = Ident(SimpleName(206, 1))
   /** name */
   case class Ident[-T >: Untyped] private[ast] (name: Name)(implicit @constructorOnly src: SourceFile)
     extends RefTree[T] {
