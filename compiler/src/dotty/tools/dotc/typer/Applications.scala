@@ -1359,9 +1359,13 @@ trait Applications extends Compatibility {
           case _ => args
         }
 
-        if (bunchedArgs.find(_.isInstanceOf[dotty.tools.dotc.ast.Trees.NamedArg[_]]).nonEmpty)
+        if (bunchedArgs.find(_.isInstanceOf[dotty.tools.dotc.ast.Trees.NamedArg[_]]).nonEmpty) {
 
-          //TODO: this works for for 'normal' case classes and breakes in every other case
+          if !unapplyFn.tpe.widen.paramInfoss.head.head.typeSymbol.is(CaseClass) then
+            report.error("named pattern matching is only supported for case classes", tree.srcPos)
+
+          //TODO: Detect if the unapply isn't written by the user
+          //TODO: what's with enums?
           val nameIndex: List[Name] =
             unapplyFn.tpe.widen.paramInfoss.head.head.fields.map(_.name).toList
 
@@ -1386,6 +1390,7 @@ trait Applications extends Compatibility {
               i2
             })
           }.toList
+        }
 
         // TODO: error on unknown names
 
