@@ -2745,18 +2745,23 @@ object Parsers {
           p = atSpan(startOffset(t), in.offset) { Apply(p, argumentPatterns()) }
         p
 
-    /** Patterns          ::=  Pattern [`,' Pattern]
+    /** Patterns          ::=  PatternArgument [`,' PatternArgument]
      */
     def patterns(location: Location = Location.InPattern): List[Tree] =
-      commaSeparated(() =>
-        if (in.token == IDENTIFIER && in.lookahead.token == EQUALS)
-          val ident = termIdent()
-          accept(EQUALS)
-          NamedArg(ident.name, pattern(location))
-        else
-          pattern(location)
-      )
+      commaSeparated(() => namedPattern(location))
 
+    /** PatternArgument   ::= [id `='] Pattern
+     */
+    def namedPattern(location: Location = Location.InPattern): Tree =
+      // TODO: Figure out the performance impact of this lookahead
+      if (in.token == IDENTIFIER && in.lookahead.token == EQUALS)
+        val ident = termIdent()
+        accept(EQUALS)
+        NamedArg(ident.name, pattern(location))
+      else
+        pattern(location)
+
+    // TODO: Check if this rule only triggers at intendent locations
     def patternsOpt(location: Location = Location.InPattern): List[Tree] =
       if (in.token == RPAREN) Nil else patterns(location)
 
