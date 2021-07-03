@@ -1,6 +1,14 @@
 package patterns
 
-case class Age(years: Int)
+import scala.annotation.patternNames
+
+class Age(val hidden: Int)
+
+object Age:
+  def apply(years: Int): Age = new Age(years)
+
+  @patternNames("years")
+  def unapply(age: Age): Option[Int] = Some(age.hidden)
 
 case class User(name: String, age: Age, city: String)
 
