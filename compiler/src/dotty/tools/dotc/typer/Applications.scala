@@ -37,7 +37,7 @@ import TypeApplications._
 import Constants.{Constant, IntTag, LongTag}
 import Denotations.SingleDenotation
 import annotation.{constructorOnly, threadUnsafe}
-
+import scala.collection.mutable.ListBuffer
 import scala.util.control.NonFatal
 
 object Applications {
@@ -1359,49 +1359,65 @@ trait Applications extends Compatibility {
           case _ => args
         }
 
-        if (bunchedArgs.find(_.isInstanceOf[dotty.tools.dotc.ast.Trees.NamedArg[_]]).nonEmpty) {
+        val unapplyPatterns = List.newBuilder[Tree]
 
+        // positional patterns
+        while (bunchedArgs != Nil && argTypes != Nil && !bunchedArgs.head.isInstanceOf[dotty.tools.dotc.ast.Trees.NamedArg[_]]) {
+          unapplyPatterns += typed(bunchedArgs.head, argTypes.head)
+          bunchedArgs = bunchedArgs.tail
+          argTypes = argTypes.tail
+        }
+
+
+        // Named patterns
+        if (bunchedArgs != Nil && argTypes != Nil) {
           if !unapplyFn.tpe.widen.paramInfoss.head.head.typeSymbol.is(CaseClass) then
             report.error("named pattern matching is only supported for case classes", tree.srcPos)
 
-          //TODO: Detect if the unapply isn't written by the user
-          //TODO: what's with enums?
-          val nameIndex: List[Name] =
-            unapplyFn.tpe.widen.paramInfoss.head.head.fields.map(_.name).toList
+          //TODO: Use annotation
+          val nameIndex: List[Name] = unapplyFn.tpe.widen.paramInfoss.head.head.fields.map(_.name).toList
 
-          bunchedArgs = argTypes.indices.map { index =>
-            val searchedName = nameIndex(index)
-            val trees = bunchedArgs.collect {
-              case NamedArg(`searchedName`, tree) =>
-                if (tree.toString == "Ident(_)")
-                  report.warning("Underscore isn't usefull here", tree.srcPos)
-                tree
+          val numberOfAlreadyUsedArguments = nameIndex.length - argTypes.length
+
+          var (usedNames, remainingNames) = nameIndex.splitAt(numberOfAlreadyUsedArguments)
+
+          val names: Map[Name, Trees.Tree[_]] = bunchedArgs
+            .groupMapReduce {
+              case named: dotty.tools.dotc.ast.Trees.NamedArg[_] => named.name
+              case tree => report.error("Positional arguments can't be used after named arguments", tree.srcPos); ???
+            }
+              { case named: dotty.tools.dotc.ast.Trees.NamedArg[_] => named.arg}
+              { case (first, duplicated) => report.error("Names can only be used once", duplicated); first }
+
+          while (remainingNames != Nil) {
+            val name = remainingNames.head
+
+            names.get(name).map(typed(_, argTypes.head)) match {
+              case Some(typ) => unapplyPatterns += typ
+              case None =>
+                var i2 = underscore
+                i2.span = unapplyFn.span
+                i2
+                unapplyPatterns += typed(i2, argTypes.head)
             }
 
-            if (trees.nonEmpty)
-              trees.tail.foreach { duplicatedName =>
-                // TODO: use correct position
-                report.error("Names can only be used once", duplicatedName.sourcePos)
-              }
+            remainingNames = remainingNames.tail
+            argTypes = argTypes.tail
+          }
 
-            trees.headOption.getOrElse({
-              var i2 = underscore
-              i2.span = unapplyFn.span
-              i2
-            })
-          }.toList
+          assert(argTypes == Nil)
+          bunchedArgs = Nil
+        }
+
+        // Error handling
+        if (bunchedArgs != Nil || argTypes != Nil) {
+          // TODO: More specific error messages here?
+          report.error(UnapplyInvalidNumberOfArguments(qual, argTypes), tree.srcPos)
         }
 
         // TODO: error on unknown names
-
-        if (argTypes.length != bunchedArgs.length) {
-          report.error(UnapplyInvalidNumberOfArguments(qual, argTypes), tree.srcPos)
-          argTypes = argTypes.take(args.length) ++
-            List.fill(argTypes.length - args.length)(WildcardType)
-        }
-        val unapplyPatterns = bunchedArgs.lazyZip(argTypes) map (typed(_, _))
-        val result = assignType(cpy.UnApply(tree)(unapplyFn, unapplyImplicits(unapplyApp), unapplyPatterns), ownType)
-        unapp.println(s"unapply patterns = $unapplyPatterns")
+        val result = assignType(cpy.UnApply(tree)(unapplyFn, unapplyImplicits(unapplyApp), unapplyPatterns.result()), ownType)
+        unapp.println(s"unapply patterns = ${unapplyPatterns.result()}")
         if ((ownType eq selType) || ownType.isError) result
         else tryWithTypeTest(Typed(result, TypeTree(ownType)), selType)
       case tp =>
